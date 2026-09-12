@@ -2961,27 +2961,36 @@ function PosterShop() {
         </div>
 
         <div style={{ position: "relative", height: 340 }}>
-          {posters.slice(0, 3).map((p, i) => (
-            <div
-              key={p.id}
-              style={{
-                position: "absolute",
-                width: 160,
-                aspectRatio: "3/4",
-                left: i * 70,
-                top: i % 2 === 0 ? 0 : 30,
-                background: p.bg,
-                border: `2px solid ${COLORS.white}`,
-                transform: `rotate(${p.rotate * 1.5}deg)`,
-                display: "flex",
-                alignItems: "flex-end",
-                padding: 12,
-                zIndex: i,
-              }}
-            >
-              <ShardWord text={p.title} fontSize={20} fg={p.fg} shadowA={p.shadowA} shadowB={p.shadowB} />
-            </div>
-          ))}
+          {posters
+            .filter((p) => p.image)
+            .slice(0, 3)
+            .map((p, i) => (
+              <div
+                key={p.id}
+                style={{
+                  position: "absolute",
+                  width: 160,
+                  aspectRatio: "3/4",
+                  left: i * 70,
+                  top: i % 2 === 0 ? 0 : 30,
+                  border: `2px solid ${COLORS.white}`,
+                  transform: `rotate(${p.rotate * 1.5}deg)`,
+                  overflow: "hidden",
+                  zIndex: i,
+                }}
+              >
+                <img
+                  src={p.image}
+                  alt={p.title}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    display: "block",
+                  }}
+                />
+              </div>
+            ))}
         </div>
       </div>
       {selectedPoster ? (

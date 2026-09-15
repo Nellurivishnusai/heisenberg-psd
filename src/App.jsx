@@ -187,8 +187,74 @@ function PosterCard({ poster, onAdd, onSelect }) {
   );
 }
 
-function CartDrawer({ open, onClose, cart, posters, onQty, onCheckout }) {
-  const items = cart.map((c) => ({ ...c, poster: posters.find((p) => p.id === c.id) }));
+function CartItemQtyInput({ item, onSetQty }) {
+  const [draft, setDraft] = useState(String(item.qty));
+
+  useEffect(() => {
+    setDraft(String(item.qty));
+  }, [item.qty]);
+
+  function handleChange(e) {
+    let clean = e.target.value.replace(/[^0-9]/g, "");
+    if (clean.length > 1 && clean.startsWith("0")) {
+      clean = clean.replace(/^0+/, "");
+    }
+    setDraft(clean);
+    if (clean !== "") {
+      const num = parseInt(clean, 10);
+      if (num >= 1) {
+        onSetQty(item.id, item.size, num);
+      }
+    }
+  }
+
+  function handleBlur() {
+    const num = parseInt(draft, 10);
+    if (!num || num < 1) {
+      setDraft("1");
+      onSetQty(item.id, item.size, 1);
+    } else {
+      setDraft(String(num));
+      if (num !== item.qty) {
+        onSetQty(item.id, item.size, num);
+      }
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === "Enter") {
+      e.target.blur();
+    }
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      value={draft}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      style={{
+        fontFamily: "'Space Mono', monospace",
+        fontSize: 12,
+        width: 36,
+        textAlign: "center",
+        border: `1.5px solid ${COLORS.black}`,
+        padding: "4px 2px",
+        outline: "none",
+        background: COLORS.white,
+        color: COLORS.black,
+      }}
+    />
+  );
+}
+
+function CartDrawer({ open, onClose, cart, posters, onQty, onSetQty, onRemove, onCheckout }) {
+  const items = cart
+    .map((c) => ({ ...c, poster: posters.find((p) => p.id === c.id) }))
+    .filter((c) => Boolean(c.poster));
   const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
 
   return (
@@ -223,7 +289,7 @@ function CartDrawer({ open, onClose, cart, posters, onQty, onCheckout }) {
           </div>
         )}
         {items.map((item) => (
-          <div key={item.id} style={{ display: "flex", gap: 12, padding: "12px 0", borderBottom: `1px dashed ${COLORS.black}`, alignItems: "center" }}>
+          <div key={`${item.id}-${item.size}`} style={{ display: "flex", gap: 12, padding: "12px 0", borderBottom: `1px dashed ${COLORS.black}`, alignItems: "center" }}>
             <div
               style={{
                 width: 48,
@@ -262,7 +328,7 @@ function CartDrawer({ open, onClose, cart, posters, onQty, onCheckout }) {
               <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: COLORS.black, opacity: 0.7 }}>{item.size === "A4" ? "A4" : '4" × 6"'} · ₹{item.price} each</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
                 <button
-                  onClick={() => onQty(item.id, -1)}
+                  onClick={() => onQty(item.id, item.size, -1)}
                   style={{
                     border: `1px solid ${COLORS.black}`,
                     background: COLORS.white,
@@ -278,9 +344,9 @@ function CartDrawer({ open, onClose, cart, posters, onQty, onCheckout }) {
                 >
                   <Minus size={16} color={COLORS.black} strokeWidth={2.5} />
                 </button>
-                <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 12, minWidth: 16, textAlign: "center" }}>{item.qty}</span>
+                <CartItemQtyInput item={item} onSetQty={onSetQty} />
                 <button
-                  onClick={() => onQty(item.id, 1)}
+                  onClick={() => onQty(item.id, item.size, 1)}
                   style={{
                     border: `1px solid ${COLORS.black}`,
                     background: COLORS.white,
@@ -298,8 +364,27 @@ function CartDrawer({ open, onClose, cart, posters, onQty, onCheckout }) {
                 </button>
               </div>
             </div>
-            <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 13, fontWeight: 700, color: COLORS.black }}>
-              ₹{(item.price * item.qty).toFixed(0)}
+            <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+              <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 13, fontWeight: 700, color: COLORS.black }}>
+                ₹{(item.price * item.qty).toFixed(0)}
+              </div>
+              <button
+                onClick={() => onRemove ? onRemove(item.id, item.size) : onQty(item.id, item.size, -item.qty)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#888",
+                  fontFamily: "'Space Mono', monospace",
+                  fontSize: 10,
+                  cursor: "pointer",
+                  padding: "4px 0 0",
+                  textDecoration: "underline",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "#D00000"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = "#888"; }}
+              >
+                REMOVE
+              </button>
             </div>
           </div>
         ))}
@@ -333,18 +418,67 @@ function CartDrawer({ open, onClose, cart, posters, onQty, onCheckout }) {
   );
 }
 
-function CheckoutModal({ open, onClose, subtotal, onConfirm }) {
+function CheckoutModal({ open, onClose, subtotal, onConfirm, isSubmitting }) {
   const [form, setForm] = useState({
     name: "",
     phone: "",
     email: "",
     address: "",
   });
+  const [phoneError, setPhoneError] = useState("");
+  const [emailError, setEmailError] = useState("");
 
   if (!open) return null;
 
+  const isPhoneValid = /^[0-9]{10}$/.test(form.phone);
+  const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim());
+
   const formIncomplete =
-    !form.name || !form.phone || !form.email || !form.address;
+    !form.name.trim() || !form.phone || !form.email.trim() || !form.address.trim();
+
+  const cannotSubmit = formIncomplete || !isPhoneValid || !isEmailValid || isSubmitting;
+
+  function handlePhoneChange(e) {
+    const raw = e.target.value;
+    if (raw.includes("+") || (raw.startsWith("91") && raw.length > 10)) {
+      setPhoneError("Enter 10-digit number only (no +91 or country codes)");
+    } else if (/[^0-9]/.test(raw)) {
+      setPhoneError("Only digits 0–9 allowed (no spaces, letters, or symbols)");
+    } else if (raw.replace(/[^0-9]/g, "").length > 0 && raw.replace(/[^0-9]/g, "").length < 10) {
+      setPhoneError("Phone number must be exactly 10 digits");
+    } else {
+      setPhoneError("");
+    }
+    const cleanDigits = raw.replace(/[^0-9]/g, "").slice(0, 10);
+    setForm((prev) => ({ ...prev, phone: cleanDigits }));
+  }
+
+  function handleEmailChange(e) {
+    const val = e.target.value;
+    setForm((prev) => ({ ...prev, email: val }));
+    if (val.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim())) {
+      setEmailError("Please enter a valid email address");
+    } else {
+      setEmailError("");
+    }
+  }
+
+  function handleSubmit() {
+    if (isSubmitting) return;
+
+    if (!isPhoneValid) {
+      setPhoneError("Phone number must be exactly 10 digits (0–9 only)");
+      return;
+    }
+    if (!isEmailValid) {
+      setEmailError("Please enter a valid email address");
+      return;
+    }
+    if (formIncomplete) {
+      return;
+    }
+    onConfirm(form);
+  }
 
   return (
     <div
@@ -425,25 +559,57 @@ function CheckoutModal({ open, onClose, subtotal, onConfirm }) {
             style={inputStyle}
           />
 
-          <input
-            type="tel"
-            placeholder="WhatsApp / Phone number"
-            value={form.phone}
-            onChange={(e) =>
-              setForm({ ...form, phone: e.target.value })
-            }
-            style={inputStyle}
-          />
+          <div>
+            <input
+              type="tel"
+              inputMode="numeric"
+              placeholder="WhatsApp / Phone number (10 digits)"
+              value={form.phone}
+              onChange={handlePhoneChange}
+              maxLength={10}
+              style={{
+                ...inputStyle,
+                borderColor: phoneError ? "#D00000" : COLORS.black,
+              }}
+            />
+            {phoneError && (
+              <div
+                style={{
+                  fontFamily: "'Space Mono', monospace",
+                  fontSize: 10,
+                  color: "#D00000",
+                  marginTop: 4,
+                }}
+              >
+                {phoneError}
+              </div>
+            )}
+          </div>
 
-          <input
-            type="email"
-            placeholder="Email"
-            value={form.email}
-            onChange={(e) =>
-              setForm({ ...form, email: e.target.value })
-            }
-            style={inputStyle}
-          />
+          <div>
+            <input
+              type="email"
+              placeholder="Email"
+              value={form.email}
+              onChange={handleEmailChange}
+              style={{
+                ...inputStyle,
+                borderColor: emailError ? "#D00000" : COLORS.black,
+              }}
+            />
+            {emailError && (
+              <div
+                style={{
+                  fontFamily: "'Space Mono', monospace",
+                  fontSize: 10,
+                  color: "#D00000",
+                  marginTop: 4,
+                }}
+              >
+                {emailError}
+              </div>
+            )}
+          </div>
 
           <input
             placeholder="Shipping address"
@@ -456,23 +622,23 @@ function CheckoutModal({ open, onClose, subtotal, onConfirm }) {
         </div>
 
         <button
-          onClick={() => onConfirm(form)}
-          disabled={formIncomplete}
+          onClick={handleSubmit}
+          disabled={cannotSubmit}
           style={{
             marginTop: 20,
             width: "100%",
-            background: formIncomplete ? "#999" : COLORS.black,
+            background: cannotSubmit ? "#999" : COLORS.black,
             color: COLORS.white,
             border: "none",
             padding: "14px",
             fontFamily: "'Anton', sans-serif",
             fontSize: 16,
             letterSpacing: "0.03em",
-            cursor: formIncomplete ? "not-allowed" : "pointer",
+            cursor: cannotSubmit ? "not-allowed" : "pointer",
             textTransform: "uppercase",
           }}
         >
-          ORDER VIA WHATSAPP
+          {isSubmitting ? "PROCESSING..." : "ORDER VIA WHATSAPP"}
         </button>
 
         <div
@@ -485,12 +651,222 @@ function CheckoutModal({ open, onClose, subtotal, onConfirm }) {
             textAlign: "center",
           }}
         >
-          You’ll be redirected to WhatsApp to send your order.
+          You'll be redirected to WhatsApp to send your order.
         </div>
       </div>
     </div>
   );
 }
+
+function OrderConfirmation({ order, onClose }) {
+  if (!order) return null;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.8)",
+        zIndex: 70,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+        animation: "confirmFadeIn 0.4s ease",
+      }}
+      onClick={onClose}
+    >
+      <style>{`
+        @keyframes confirmFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes confirmSlideUp {
+          from { opacity: 0; transform: translateY(30px) scale(0.96); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes confirmCheck {
+          0% { transform: scale(0) rotate(-45deg); opacity: 0; }
+          60% { transform: scale(1.2) rotate(0deg); opacity: 1; }
+          100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+      `}</style>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#15803d",
+          width: "min(440px, 100%)",
+          border: `3px solid ${COLORS.black}`,
+          padding: 32,
+          position: "relative",
+          boxShadow: `10px 10px 0 ${COLORS.black}`,
+          animation: "confirmSlideUp 0.5s ease",
+        }}
+      >
+        {/* Checkmark circle */}
+        <div
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: "50%",
+            background: COLORS.white,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 20px",
+            animation: "confirmCheck 0.6s ease 0.2s both",
+          }}
+        >
+          <Check size={30} color="#15803d" strokeWidth={3} />
+        </div>
+
+        <div
+          style={{
+            fontFamily: "'Anton', sans-serif",
+            fontSize: 30,
+            color: COLORS.white,
+            textAlign: "center",
+            textTransform: "uppercase",
+            letterSpacing: "0.03em",
+            marginBottom: 6,
+          }}
+        >
+          Thank you BOSS!!!
+        </div>
+
+        <div
+          style={{
+            fontFamily: "'Space Mono', monospace",
+            fontSize: 11,
+            color: "rgba(255,255,255,0.75)",
+            textAlign: "center",
+            marginBottom: 24,
+          }}
+        >
+          Your order has been placed successfully.
+        </div>
+
+        {/* Order details card */}
+        <div
+          style={{
+            background: "rgba(255,255,255,0.15)",
+            border: "1px solid rgba(255,255,255,0.3)",
+            padding: 20,
+            marginBottom: 24,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: "'Space Mono', monospace",
+              fontSize: 9,
+              color: "rgba(255,255,255,0.7)",
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+              marginBottom: 6,
+            }}
+          >
+            ORDER NUMBER
+          </div>
+          <div
+            style={{
+              fontFamily: "'Anton', sans-serif",
+              fontSize: 22,
+              color: COLORS.white,
+              marginBottom: 18,
+            }}
+          >
+            {order.orderNumber}
+          </div>
+
+          {order.items.map((item, i) => (
+            <div
+              key={i}
+              style={{
+                borderTop: "1px solid rgba(255,255,255,0.2)",
+                padding: "12px 0",
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: "'Anton', sans-serif",
+                  fontSize: 16,
+                  color: COLORS.white,
+                  textTransform: "uppercase",
+                  marginBottom: 6,
+                }}
+              >
+                {item.title}
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontFamily: "'Space Mono', monospace",
+                  fontSize: 11,
+                  color: "rgba(255,255,255,0.85)",
+                }}
+              >
+                <span>{item.size === "A4" ? "A4" : '4" × 6"'} · Qty {item.qty}</span>
+                <span>₹{item.price} × {item.qty} = ₹{(item.price * item.qty).toFixed(0)}</span>
+              </div>
+            </div>
+          ))}
+
+          <div
+            style={{
+              borderTop: "2px solid rgba(255,255,255,0.4)",
+              paddingTop: 12,
+              marginTop: 4,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "'Space Mono', monospace",
+                fontSize: 11,
+                fontWeight: 700,
+                color: COLORS.white,
+                textTransform: "uppercase",
+              }}
+            >
+              Total
+            </div>
+            <div
+              style={{
+                fontFamily: "'Anton', sans-serif",
+                fontSize: 24,
+                color: COLORS.white,
+              }}
+            >
+              ₹{order.total}
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={onClose}
+          style={{
+            width: "100%",
+            background: COLORS.white,
+            color: "#15803d",
+            border: "none",
+            padding: "14px",
+            fontFamily: "'Anton', sans-serif",
+            fontSize: 16,
+            letterSpacing: "0.03em",
+            cursor: "pointer",
+            textTransform: "uppercase",
+          }}
+        >
+          CONTINUE SHOPPING
+        </button>
+      </div>
+    </div>
+  );
+} 
 
 const inputStyle = {
   padding: "10px 12px",
@@ -917,18 +1293,23 @@ function CreatorDashboard({ session }) {
 
   useEffect(() => {
     async function loadPosters() {
-      const { data, error } = await supabase
-        .from("posters")
-        .select("*")
-        .order("id");
+      try {
+        const { data, error } = await supabase
+          .from("posters")
+          .select("*")
+          .order("id");
 
-      if (error) {
-        console.error("Error loading creator posters:", error);
-        return;
+        if (error) {
+          console.error("Error loading creator posters:", error);
+          return;
+        }
+
+        setPosters(data || []);
+      } catch (err) {
+        console.error("Unexpected error loading creator posters:", err);
+      } finally {
+        setLoading(false);
       }
-
-      setPosters(data || []);
-      setLoading(false);
     }
 
     loadPosters();
@@ -2613,6 +2994,8 @@ function PosterShop() {
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [confirmedOrder, setConfirmedOrder] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [filter, setFilter] = useState("All");
   const [loading, setLoading] = useState(true);
   const [selectedPoster, setSelectedPoster] = useState(null);
@@ -2693,94 +3076,125 @@ function PosterShop() {
     setCartOpen(true);
   }
 
-  function changeQty(id, delta) {
+  function changeQty(id, size, delta) {
     setCart((prev) =>
       prev
         .map((c) =>
-          c.id === id ? { ...c, qty: c.qty + delta } : c
+          c.id === id && c.size === size ? { ...c, qty: c.qty + delta } : c
         )
         .filter((c) => c.qty > 0)
     );
   }
 
-  async function handleWhatsAppOrder(form) {
-    const items = cart
-      .map((c) => {
-        const poster = posters.find((p) => p.id === c.id);
-
-        if (!poster) return null;
-
-        return {
-          title: poster.title,
-          size: c.size,
-          qty: c.qty,
-          price: c.price,
-        };
-      })
-      .filter(Boolean);
-
-    // Generate a unique order number
-    const orderNumber = `HPSD-${new Date().getFullYear()}-${Date.now()
-      .toString()
-      .slice(-6)}`;
-
-    // Save order to Supabase
-    const { error } = await supabase.from("orders").insert([
-      {
-        order_number: orderNumber,
-        customer_name: form.name,
-        customer_phone: form.phone,
-        customer_email: form.email,
-        shipping_address: form.address,
-        items: items,
-        total: subtotal,
-        status: "new",
-      },
-    ]);
-
-    // If saving fails, do NOT open WhatsApp
-    if (error) {
-      console.error("Error creating order:", error);
-      alert("Could not create your order. Please try again.");
-      return;
-    }
-
-    console.log("Order created successfully:", orderNumber);
-
-    const orderLines = items
-      .map(
-        (item) =>
-          `• ${item.title} — ${item.size} × ${item.qty} — ₹${(
-            item.price * item.qty
-          ).toFixed(0)}`
+  function setQty(id, size, qty) {
+    setCart((prev) =>
+      prev.map((c) =>
+        c.id === id && c.size === size ? { ...c, qty } : c
       )
-      .join("\n");
+    );
+  }
 
-    const message = [
-      "Hello! I would like to place an order from HEISENBERG.PSD.",
-      "",
-      `ORDER NUMBER: ${orderNumber}`,
-      "",
-      "ORDER:",
-      orderLines,
-      "",
-      `TOTAL: ₹${subtotal.toFixed(0)}`,
-      "",
-      "CUSTOMER DETAILS:",
-      `Name: ${form.name}`,
-      `Phone: ${form.phone}`,
-      `Email: ${form.email}`,
-      `Address: ${form.address}`,
-      "",
-      "Please confirm my order. Thank you!",
-    ].join("\n");
+  function removeFromCart(id, size) {
+    setCart((prev) => prev.filter((c) => !(c.id === id && c.size === size)));
+  }
 
-    const whatsappUrl =
-      `https://wa.me/917671906173?text=${encodeURIComponent(message)}`;
+  async function handleWhatsAppOrder(form) {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
 
-    window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+    try {
+      const items = cart
+        .map((c) => {
+          const poster = posters.find((p) => p.id === c.id);
 
-    setCheckoutOpen(false);
+          if (!poster) return null;
+
+          return {
+            title: poster.title,
+            size: c.size,
+            qty: c.qty,
+            price: c.price,
+          };
+        })
+        .filter(Boolean);
+
+      // Generate a unique order number
+      const orderNumber = `HPSD-${new Date().getFullYear()}-${Date.now()
+        .toString()
+        .slice(-6)}`;
+
+      // Save order to Supabase
+      const { error } = await supabase.from("orders").insert([
+        {
+          order_number: orderNumber,
+          customer_name: form.name.trim(),
+          customer_phone: form.phone.trim(),
+          customer_email: form.email.trim(),
+          shipping_address: form.address.trim(),
+          items: items,
+          total: subtotal,
+          status: "new",
+        },
+      ]);
+
+      // If saving fails, do NOT open WhatsApp
+      if (error) {
+        console.error("Error creating order:", error);
+        alert("Could not create your order. Please try again.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      console.log("Order created successfully:", orderNumber);
+
+      const orderLines = items
+        .map(
+          (item) =>
+            `• ${item.title} — ${item.size} × ${item.qty} — ₹${(
+              item.price * item.qty
+            ).toFixed(0)}`
+        )
+        .join("\n");
+
+      const message = [
+        "Hello! I would like to place an order from HEISENBERG.PSD.",
+        "",
+        `ORDER NUMBER: ${orderNumber}`,
+        "",
+        "ORDER:",
+        orderLines,
+        "",
+        `TOTAL: ₹${subtotal.toFixed(0)}`,
+        "",
+        "CUSTOMER DETAILS:",
+        `Name: ${form.name.trim()}`,
+        `Phone: ${form.phone.trim()}`,
+        `Email: ${form.email.trim()}`,
+        `Address: ${form.address.trim()}`,
+        "",
+        "Please confirm my order. Thank you!",
+      ].join("\n");
+
+      const whatsappUrl =
+        `https://wa.me/917671906173?text=${encodeURIComponent(message)}`;
+
+      window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+
+      // Show confirmation UI with order details
+      setConfirmedOrder({
+        orderNumber,
+        items,
+        total: subtotal.toFixed(0),
+      });
+
+      setCheckoutOpen(false);
+      setCart([]);
+    } catch (err) {
+      console.error("Unexpected error creating order:", err);
+      alert("Could not create your order. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   function closeCheckout() {
@@ -3273,6 +3687,44 @@ function PosterShop() {
         <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 20 }}>
           <div>
             <div style={{ fontFamily: "'Anton', sans-serif", fontSize: 20, color: COLORS.white, textTransform: "uppercase" }}>SIDHARTH</div>
+            <div style={{ display: "flex", gap: 14, marginTop: 10, flexWrap: "wrap" }}>
+              <a
+                href="https://www.instagram.com/heisenbrg.psd"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  fontFamily: "'Space Mono', monospace",
+                  fontSize: 11,
+                  color: COLORS.yellow,
+                  textDecoration: "none",
+                  borderBottom: `1px solid ${COLORS.yellow}`,
+                  paddingBottom: 1,
+                  transition: "opacity 0.2s ease",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.75"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+              >
+                @heisenbrg.psd
+              </a>
+              <a
+                href="https://www.instagram.com/wakeup.ssidd"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  fontFamily: "'Space Mono', monospace",
+                  fontSize: 11,
+                  color: COLORS.yellow,
+                  textDecoration: "none",
+                  borderBottom: `1px solid ${COLORS.yellow}`,
+                  paddingBottom: 1,
+                  transition: "opacity 0.2s ease",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.75"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+              >
+                @wakeup.ssidd
+              </a>
+            </div>
             <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, color: "rgba(255,255,255,0.6)", marginTop: 6 }}>
               Printed in small batches. No two runs identical.
             </div>
@@ -3283,13 +3735,28 @@ function PosterShop() {
         </div>
       </div>
 
-      <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} cart={cart} posters={posters} onQty={changeQty} onCheckout={() => setCheckoutOpen(true)} />
+      <CartDrawer
+        open={cartOpen}
+        onClose={() => setCartOpen(false)}
+        cart={cart}
+        posters={posters}
+        onQty={changeQty}
+        onSetQty={setQty}
+        onRemove={removeFromCart}
+        onCheckout={() => setCheckoutOpen(true)}
+      />
       <CheckoutModal
         open={checkoutOpen}
         onClose={closeCheckout}
         subtotal={subtotal}
         onConfirm={handleWhatsAppOrder}
-      />    </div>
+        isSubmitting={isSubmitting}
+      />
+      <OrderConfirmation
+        order={confirmedOrder}
+        onClose={() => setConfirmedOrder(null)}
+      />
+    </div>
   );
 }
 export default function App() {
